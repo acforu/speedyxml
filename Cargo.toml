@@ -1,0 +1,6 @@
+[package]
+name = "speedyxml"
+version = "0.1.0"
+authors = ["acforu <newltf@qq.com>"]
+
+[dependencies]
