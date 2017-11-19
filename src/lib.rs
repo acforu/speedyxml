@@ -44,10 +44,21 @@ struct XmlNode
 	attrs:Vec<XmlAttr>,
 }
 
+
+enum XmlParseError {
+	element_name_error,
+	expect_attr_name,
+}
+
+type ParseResult = Result<(), XmlParseError>;
 // fn print_type_of<T>(_: &T) {
 //     println!("{}", unsafe { std::intrinsics::type_name::<T>() });
 // }
 static name_end_chars:&'static[char] = &[' ','\n','\r','\t','/','>','?','\0'];
+
+
+// Attribute name (anything but space \n \r \t / < > = ? ! \0)
+static invalid_attr_name_chars:&'static[char] = &[' ','\n','\r','\t','/','<','>','=','?','!','\0'];
 
 pub fn parse(filename:&str)
 {
@@ -94,7 +105,7 @@ pub fn parse(filename:&str)
 
 }
 
-fn parse_node(pos:&mut usize,xml:&[u8])
+fn parse_node(pos:&mut usize,xml:&[u8])-> ParseResult
 {
 	let c = xml[*pos];
 	match c
@@ -104,15 +115,59 @@ fn parse_node(pos:&mut usize,xml:&[u8])
 	}
 }
 
-fn parse_element(pos:&mut usize,xml:&[u8])
+fn parse_element(pos:&mut usize,xml:&[u8]) -> ParseResult
 {
 	skip_whitespace(pos,xml);
+	let name_beg = *pos;
+	skip_name(pos,xml);
+	if name_beg == *pos
+	{
+		return Err(XmlParseError::element_name_error)
+	}		
+	// else
+	
+	let node_name:XmlStr = XmlStr {beg:name_beg,end:*pos};
 
+	skip_whitespace(pos,xml);
+
+	Ok(())
 }
 
-fn skip_name()
+fn parse_node_attr(pos:&mut usize,xml:&[u8]) -> ParseResult
 {
-	//#todo 
+	loop
+	{
+		let c = xml[*pos] as char;
+		if in_chars_set(c,invalid_attr_name_chars)
+		{
+			break;
+		}
+
+		let attr_name_beg:usize = *pos;
+
+		skip_chars(invalid_attr_name_chars,pos,xml);
+		if *pos == attr_name_beg
+		{
+			return Err(XmlParseError::expect_attr_name)
+		}
+
+	};
+	Ok(())
+}
+
+fn in_chars_set(c:char,set:&[char]) ->bool
+{
+	return set.iter().any(|&x| x == c);
+}
+
+
+fn skip_name(pos:&mut usize,xml:&[u8])
+{
+	let c = xml[*pos] as char;
+	while !name_end_chars.iter().any(|&x| x == c)
+	{
+		*pos = *pos + 1;
+	}
 }
 
 fn skip_char(target:char,pos:&mut usize,xml:&[u8])
@@ -123,9 +178,12 @@ fn skip_char(target:char,pos:&mut usize,xml:&[u8])
 	}	
 }
 
-fn skip_chars(target:&[u8],pos:&mut usize,xml:&[u8])
+fn skip_chars(skip_chars_set:&[char],pos:&mut usize,xml:&[u8])
 {
-
+	while !in_chars_set(xml[*pos] as char,skip_chars_set) 
+	{
+		*pos = *pos + 1;
+	}	
 }
 
 fn skip_whitespace(pos:&mut usize,xml:&[u8])
