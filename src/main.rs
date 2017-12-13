@@ -1,6 +1,13 @@
-extern crate speedyxml;
+//extern crate speedyxml;
 
 // use speedyxml;
+
+fn test1()
+{
+	println!("{}", "test");
+}
+
 fn main() {
-    speedyxml::test();
+	test1();
+    //speedyxml::test();
 }
