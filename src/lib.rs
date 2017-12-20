@@ -2,6 +2,8 @@
 #![allow(unused_variables)]
 #![warn(unused_imports)]
 #![warn(unused_must_use)]
+#![allow(dead_code)]
+
 use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
@@ -10,36 +12,50 @@ use std::str::FromStr;
 // {
 
 // }
-
+#[derive(Debug)]
 struct XmlStr {
 	beg: usize,
 	end: usize,
 }
-
+#[derive(Debug)]
 struct XmlAttr {
 	name: XmlStr,
 	value: XmlStr,
 }
 
-enum XmlParseError {
-	element_name_error,
-	expect_attr_name,
-	expect_attr_equal,
-	expect_attr_value,
-	unknow_error,
-	unimplemented,
+// enum XmlParseError {
+// 	element_name_error,
+// 	expect_attr_name,
+// 	expect_attr_equal,
+// 	expect_attr_value,
+// 	unknow_error,
+// 	unimplemented,
+// }
+#[derive(Debug)]
+pub struct XmlParseError {
+	msg: &'static str,
+	index: usize,
 }
 
-enum XmlElement {
-	XmlNode { name: XmlStr, attrs: Vec<XmlAttr> , children:Vec<XmlNode>},
-	XmlAttrs { attrs: Vec<XmlAttr> },
+impl XmlParseError {
+	fn new(msg: &'static str, index: usize) -> XmlParseError {
+		return XmlParseError { msg, index };
+	}
 }
 
-struct XmlDocument{
-	node: Vec<XmlNode>
+#[derive(Debug)]
+struct XmlNode {
+	name: XmlStr,
+	attrs: Vec<XmlAttr>,
+	children: Vec<Box<XmlNode>>,
 }
 
-type ParseResult = Result<XmlElement, XmlParseError>;
+#[derive(Debug)]
+pub struct XmlDocument {
+	node: Vec<XmlNode>,
+}
+
+// type ParseResult = Result<XmlElement, XmlParseError>;
 // fn print_type_of<T>(_: &T) {
 //     println!("{}", unsafe { std::intrinsics::type_name::<T>() });
 // }
@@ -49,7 +65,7 @@ static name_end_chars: &'static [char] = &[' ', '\n', '\r', '\t', '/', '>', '?',
 static invalid_attr_name_chars: &'static [char] =
 	&[' ', '\n', '\r', '\t', '/', '<', '>', '=', '?', '!', '\0'];
 
-pub fn parse(filename: &str) {
+pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
 	let mut file = File::open(filename).expect("can't find file");
 	let mut content = String::new();
 	file.read_to_string(&mut content).expect("read error");
@@ -71,6 +87,8 @@ pub fn parse(filename: &str) {
 	let xml = content.as_bytes();
 	// parse_element(&mut pos,str.as_bytes());
 
+	let mut doc: XmlDocument = XmlDocument { node: Vec::new() };
+
 	loop {
 		skip_whitespace(&mut pos, xml);
 
@@ -79,14 +97,21 @@ pub fn parse(filename: &str) {
 		}
 
 		if xml[pos] == '<' as u8 {
-			parse_node(&mut pos, xml);
+			let result = parse_node(&mut pos, xml);
+			if result.is_err() {
+				return Err(result.err().unwrap());
+			} else {
+				doc.node.push(result.ok().unwrap());
+			}
 		} else {
 			break;
 		}
 	}
+
+	return Ok(doc);
 }
 
-fn parse_node(pos: &mut usize, xml: &[u8]) -> ParseResult {
+fn parse_node(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 	let c = xml[*pos];
 	match c {
 		_ => parse_element(pos, xml),
@@ -94,12 +119,12 @@ fn parse_node(pos: &mut usize, xml: &[u8]) -> ParseResult {
 	}
 }
 
-fn parse_element(pos: &mut usize, xml: &[u8]) -> ParseResult {
+fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 	skip_whitespace(pos, xml);
 	let name_beg = *pos;
 	skip_name(pos, xml);
 	if name_beg == *pos {
-		return Err(XmlParseError::element_name_error);
+		return Err(XmlParseError::new("element_name_error", *pos));
 	}
 
 	let node_name: XmlStr = XmlStr {
@@ -109,28 +134,30 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> ParseResult {
 
 	skip_whitespace(pos, xml);
 
-	let attrResult = parse_node_attr(pos, xml);
-	if attrResult.is_err() {
-		return Err(attrResult.err().unwrap());
+	let attr_result = parse_node_attr(pos, xml);
+	if attr_result.is_err() {
+		return Err(attr_result.err().unwrap());
 	}
 
 	if xml[*pos] == '>' as u8 {
 		//parse content
+  //maybe add children
 		advance(pos);
-		return Err(XmlParseError::unimplemented);
+		return Err(XmlParseError::new("unimplemented", *pos));
 	} else if xml[*pos] == '/' as u8 {
 		advance(pos);
 		if xml[*pos] != '>' as u8 {
-			return Err(XmlParseError::unknow_error); //expected >
+			return Err(XmlParseError::new("expected >", *pos));
 		}
 		advance(pos);
 	} else {
-		return Err(XmlParseError::unknow_error); //expected >
+		return Err(XmlParseError::new("expected >", *pos));
 	}
 
-	return Ok(XmlElement::XmlNode {
+	return Ok(XmlNode {
 		name: node_name,
-		attrs: attrResult.ok().unwrap(),
+		attrs: attr_result.ok().unwrap(),
+		children: Vec::new(),
 	});
 }
 
@@ -147,7 +174,7 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 
 		skip_chars(invalid_attr_name_chars, pos, xml);
 		if *pos == attr_name_beg {
-			return Err(XmlParseError::expect_attr_name);
+			return Err(XmlParseError::new("expected attr name", *pos));
 		}
 
 		let attr_name = XmlStr {
@@ -158,7 +185,7 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 		skip_whitespace(pos, xml);
 
 		if xml[*pos] != '=' as u8 {
-			return Err(XmlParseError::expect_attr_equal);
+			return Err(XmlParseError::new("expected =", *pos));
 		}
 
 		advance(pos); //skip =
@@ -166,7 +193,7 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 		let attr_value_beg = *pos;
 		let tag = xml[*pos];
 		if tag != '"' as u8 || tag != '\'' as u8 {
-			return Err(XmlParseError::expect_attr_value);
+			return Err(XmlParseError::new("expected attr value", *pos));
 		}
 
 		skip_until(tag as char, pos, xml);
@@ -226,7 +253,14 @@ pub fn test() {
 	// println!("hello world" );
  //parse("./data/test.xml");
  // parse("./data/mbcs.txt");
-	parse("./data/utf8.xml");
+	let res = parse("data/test.xml");
+	if res.is_err() {
+		println!("{:#?}", res.err().unwrap());
+	} else {
+		let doc = res.ok().unwrap();
+		println!("{:#?}", doc);
+	}
+
 	// let str = &mut string;
  // println!("{}", "test done")
 }
@@ -237,6 +271,6 @@ mod tests {
 	#[test]
 	fn it_works() {
 		//assert_eq!(2 + 2, 4);
-		test();
+		speedyxml::test();
 	}
 }

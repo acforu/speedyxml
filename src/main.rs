@@ -1,6 +1,6 @@
-//extern crate speedyxml;
+extern crate speedyxml;
 
-// use speedyxml;
+//use speedyxml;
 
 fn test1()
 {
@@ -9,5 +9,5 @@ fn test1()
 
 fn main() {
 	test1();
-    //speedyxml::test();
+    speedyxml::test();
 }
