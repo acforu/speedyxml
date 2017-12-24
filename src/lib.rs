@@ -69,22 +69,25 @@ pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
 	let mut file = File::open(filename).expect("can't find file");
 	let mut content = String::new();
 	file.read_to_string(&mut content).expect("read error");
+
 	// let xml_content = &content;
  // for (i,v) in content.chars().enumerate() {
  // 	// print!("{},{}\n", i,v);
  // 	print_type_of(&v);
  // }
 
-	// for (s,i) in content.as_str().char_indices()
- // {
- // 	println!("{},{}", s,i);
- // }
- // let slice = &content[3..6];
+	for (s, i) in content.as_str().char_indices() {
+		println!("{},{}", s, i);
+	}
+	//return Err(XmlParseError::new("msg", 1));
+
+	// let slice = &content[3..6];
  // println!("{}", slice);
  // println!("{}", content.len());
 
 	let mut pos: usize = 0;
 	let xml = content.as_bytes();
+
 	// parse_element(&mut pos,str.as_bytes());
 
 	let mut doc: XmlDocument = XmlDocument { node: Vec::new() };
@@ -97,6 +100,7 @@ pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
 		}
 
 		if xml[pos] == '<' as u8 {
+			advance(&mut pos);
 			let result = parse_node(&mut pos, xml);
 			if result.is_err() {
 				return Err(result.err().unwrap());
@@ -192,10 +196,11 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 		skip_whitespace(pos, xml);
 		let attr_value_beg = *pos;
 		let tag = xml[*pos];
-		if tag != '"' as u8 || tag != '\'' as u8 {
+		if tag != '"' as u8 && tag != '\'' as u8 {
 			return Err(XmlParseError::new("expected attr value", *pos));
 		}
 
+		advance(pos); //skip tag
 		skip_until(tag as char, pos, xml);
 		let attr_value = XmlStr {
 			beg: attr_value_beg,
@@ -205,6 +210,7 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 			name: attr_name,
 			value: attr_value,
 		});
+		advance(pos); //skip tag
 
 		skip_whitespace(pos, xml);
 	}
@@ -221,8 +227,12 @@ fn in_chars_set(c: char, set: &[char]) -> bool {
 }
 
 fn skip_name(pos: &mut usize, xml: &[u8]) {
-	let c = xml[*pos] as char;
-	while !name_end_chars.iter().any(|&x| x == c) {
+	// let c = xml[*pos] as char;	
+	// for cc in  name_end_chars.into_iter(){
+	// 	println!("a:{}b:{}", cc,c);		
+	// }
+	// println!("done");	
+	while !name_end_chars.iter().any(|&x| x == (xml[*pos] as char)) {
 		*pos = *pos + 1;
 	}
 }
