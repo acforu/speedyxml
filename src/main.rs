@@ -8,6 +8,6 @@ fn test1()
 }
 
 fn main() {
-	test1();
+	// test1();
     speedyxml::test();
 }
