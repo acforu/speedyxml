@@ -1,8 +1,8 @@
-#![feature(core_intrinsics)]
-#![allow(unused_variables)]
-#![warn(unused_imports)]
-#![warn(unused_must_use)]
-#![allow(dead_code)]
+// #![feature(core_intrinsics)]
+// #![allow(unused_variables)]
+// #![warn(unused_imports)]
+// #![warn(unused_must_use)]
+// #![allow(dead_code)]
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -56,8 +56,16 @@ pub struct XmlNode {
 
 #[derive(Debug)]
 pub struct XmlDocument {
-	node: Vec<XmlNode>,
+	content:CString,
+	nodes: Vec<XmlNode>,
 }
+
+// impl  XmlDocument{
+// 	pub fn print()->String
+// 	{
+// 		for 
+// 	}
+// }
 
 // type ParseResult = Result<XmlElement, XmlParseError>;
 // fn print_type_of<T>(_: &T) {
@@ -69,7 +77,7 @@ static name_end_chars: &'static [char] = &[' ', '\n', '\r', '\t', '/', '>', '?',
 static invalid_attr_name_chars: &'static [char] =
 	&[' ', '\n', '\r', '\t', '/', '<', '>', '=', '?', '!', '\0'];
 
-pub fn parse_content(content:&[u8])-> Result<XmlDocument, XmlParseError> {
+pub fn parse_content(content:&[u8])-> Result<Vec<XmlNode>, XmlParseError> {
 	for (i,s) in content.into_iter().enumerate() {
 		println!("{},{}", s, i);
 	}
@@ -86,7 +94,7 @@ pub fn parse_content(content:&[u8])-> Result<XmlDocument, XmlParseError> {
 
 	// parse_element(&mut pos,str.as_bytes());
 
-	let mut doc: XmlDocument = XmlDocument { node: Vec::new() };
+	let mut nodes = Vec::new();
 
 	loop {
 		skip_whitespace(&mut pos, xml);
@@ -98,13 +106,13 @@ pub fn parse_content(content:&[u8])-> Result<XmlDocument, XmlParseError> {
 		if xml[pos] == '<' as u8 {
 			advance(&mut pos);
 			let result = try!(parse_node(&mut pos, xml));
-			doc.node.push(result);
+			nodes.push(result);
 		} else {
 			break;
 		}
 	}
 
-	return Ok(doc);
+	return Ok(nodes);
 }
 
 pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
@@ -120,8 +128,19 @@ pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
 	
 	let content_cstring = CString::new(content).expect("convert to u8 error");
 
-	return parse_content(content_cstring.as_bytes_with_nul());
+	return parse_cstring(content_cstring);
 	
+}
+
+fn parse_cstring<'a>(content:CString)-> Result<XmlDocument, XmlParseError> {
+	let nodes = try!(parse_content(content.as_bytes_with_nul()));
+
+	let doc = XmlDocument
+	{
+		content,
+		nodes,
+	};
+	return Ok(doc);
 }
 
 fn parse_node(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
@@ -272,16 +291,17 @@ pub fn test() {
 	// println!("hello world" );
 //  let content = parse("./data/test.xml");
  // parse("./data/mbcs.txt");
- 	let xml = CString::new("<lib count='2'/>").unwrap();
-	let content = xml.as_bytes_with_nul();
 
-	let doc = match parse_content(content){
+
+ 	let xml = CString::new("<lib count='2'/>").unwrap();
+	let doc = match parse_cstring(xml){
 		Ok(doc) => doc,
 		Err(e) => panic!("{:?}", e),
 	};
 
 	
-	println!("{:?}", doc);
+	println!("{:#?}", doc);
+
 	// if res.is_err() {
 	// 	println!("{:#?}", res.err().unwrap());
 	// } else {
