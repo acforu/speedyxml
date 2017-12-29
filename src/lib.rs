@@ -8,15 +8,41 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
 use std::ffi::{CString, CStr};
+use std::str::*;
+use std::slice;
+use std::fmt;
+use std::fmt::Write;
 // struct document
 // {
 
 // }
 #[derive(Debug)]
 struct XmlStr {
-	beg: usize,
-	end: usize,
+	data: *const u8,
+	length: usize,
 }
+
+impl XmlStr{
+	fn from(ptr:*const u8, length:usize) -> XmlStr
+	{
+		XmlStr{data:ptr,length}
+	}
+
+	fn from_range(content:&[u8],beg:usize,end:usize) -> XmlStr
+	{
+		unsafe{
+			XmlStr{data:content.as_ptr().offset(beg as isize), length: end - beg}
+		}
+	}
+
+	fn as_slice(&self) -> &str {
+        unsafe {
+            let bytes = slice::from_raw_parts(self.data, self.length);
+            from_utf8_unchecked(bytes)
+        }
+    }
+}
+
 #[derive(Debug)]
 struct XmlAttr {
 	name: XmlStr,
@@ -60,12 +86,21 @@ pub struct XmlDocument {
 	nodes: Vec<XmlNode>,
 }
 
-// impl  XmlDocument{
-// 	pub fn print()->String
-// 	{
-// 		for 
-// 	}
-// }
+impl  XmlDocument{
+	pub fn print(&self)->String
+	{
+		let mut buf = String::new();
+		for node in self.nodes.iter(){
+			write!(&mut buf, "<{} ",node.name.as_slice());
+			for attr in node.attrs.iter()
+			{
+				write!(&mut buf, "{}='{}'",attr.name.as_slice(),attr.value.as_slice());
+			}
+			write!(&mut buf, "/>");
+		}
+		buf
+	}
+}
 
 // type ParseResult = Result<XmlElement, XmlParseError>;
 // fn print_type_of<T>(_: &T) {
@@ -159,10 +194,8 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 		return pack_error("element_name_error", *pos);
 	}
 
-	let node_name: XmlStr = XmlStr {
-		beg: name_beg,
-		end: *pos,
-	};
+	let node_name: XmlStr = XmlStr::from_range(xml,name_beg,*pos+1);
+
 
 	skip_whitespace(pos, xml);
 
@@ -209,10 +242,7 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 			return pack_error("expected attr name", *pos);
 		}
 
-		let attr_name = XmlStr {
-			beg: attr_name_beg,
-			end: *pos,
-		};
+		let attr_name = XmlStr::from_range(xml,attr_name_beg,*pos+1);
 
 		skip_whitespace(pos, xml);
 
@@ -230,10 +260,8 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 
 		advance(pos); //skip tag
 		skip_until(tag as char, pos, xml);
-		let attr_value = XmlStr {
-			beg: attr_value_beg,
-			end: (*pos) - 1,
-		};
+		let attr_value = XmlStr::from_range(xml,attr_name_beg,*pos);
+
 		ret.push(XmlAttr {
 			name: attr_name,
 			value: attr_value,
@@ -300,7 +328,8 @@ pub fn test() {
 	};
 
 	
-	println!("{:#?}", doc);
+	//println!("{:#?}", doc);
+	println!("{}",doc.print());
 
 	// if res.is_err() {
 	// 	println!("{:#?}", res.err().unwrap());
