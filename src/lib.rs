@@ -126,7 +126,7 @@ impl fmt::Display for XmlNode {
 #[derive(Debug)]
 pub struct XmlDocument {
 	content: CString,
-	nodes: Vec<XmlNode>,
+	nodes: Vec<Box<XmlNode>>,
 }
 
 impl XmlDocument {
@@ -149,42 +149,6 @@ static name_end_chars: &'static [char] = &[' ', '\n', '\r', '\t', '/', '>', '?',
 static invalid_attr_name_chars: &'static [char] =
 	&[' ', '\n', '\r', '\t', '/', '<', '>', '=', '?', '!', '\0'];
 
-pub fn parse_content(content: &[u8]) -> Result<Vec<XmlNode>, XmlParseError> {
-	for (i, s) in content.into_iter().enumerate() {
-		println!("{},{}", i, *s as char);
-	}
-
-	//return Err(XmlParseError::new("msg", 1));
-
-	// let slice = &content[3..6];
- // println!("{}", slice);
- // println!("{}", content.len());
-
-	let mut pos: usize = 0;
-	let xml = content;
-
-	// parse_element(&mut pos,str.as_bytes());
-
-	let mut nodes = Vec::new();
-
-	loop {
-		skip_whitespace(&mut pos, xml);
-
-		if xml[pos] == 0 {
-			break;
-		}
-
-		if xml[pos] == '<' as u8 {
-			advance(&mut pos);
-			let result = try!(parse_node(&mut pos, xml));
-			nodes.push(result);
-		} else {
-			break;
-		}
-	}
-
-	return Ok(nodes);
-}
 
 pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
 	let mut file = File::open(filename).expect("can't find file");
@@ -234,7 +198,7 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 		return Err(attr_result.err().unwrap());
 	}
 
-	let ret_node = XmlNode{				
+	let mut ret_node = XmlNode{				
 		name: node_name,
 		value: node_value,
 		attrs: Vec::new(),
@@ -253,26 +217,16 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 		skip_whitespace(pos, xml);
 
 		if xml[*pos] == '<' as u8 {
-			advance(pos);
-			if xml[*pos] == '/' as u8 {
-				advance(pos);
-				let name_beg = *pos;
-				skip_name(pos, xml);
-				let close_node_name = XmlStr::from_range(xml, name_beg, *pos);
-				if close_node_name != node_name {
-					return pack_error("node name mismatch", *pos);
-				}
-			} else {
-
-				loop {
-					let child = parse_element(pos, xml);
-					//todo 
-				}
-				
+			if xml[*pos+1] == '/' as u8 {
+					try!(parse_close_node(pos,xml,node_name));
+				} else
+				 {
+					ret_node.children = try!(parse_nodes(pos,xml));				
 			}
 		} else {
 			skip_name(pos, xml);
-			//content
+			ret_node.value = XmlStr::from_range(xml, maybe_content_beg, *pos);
+			try!(parse_close_node(pos,xml,node_name));
 		}
 
 		// return pack_error("unimplemented", *pos);
@@ -296,13 +250,28 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 	return Ok(ret_node);
 }
 
-// fn parse_node_content(
-// 	pos: &mut usize,
-// 	xml: &[u8],
-// 	node_name: XmlStr,
-// ) -> Result<XmlNode, XmlParseError> {
+fn parse_close_node(
+	pos: &mut usize,
+	xml: &[u8],
+	node_name: XmlStr,
+) -> Result<(), XmlParseError> {
 
-// }
+	if xml[*pos] == '<' as u8 {
+			advance(pos);
+			if xml[*pos] == '/' as u8 {
+				advance(pos);
+				let name_beg = *pos;
+				skip_name(pos, xml);
+				let close_node_name = XmlStr::from_range(xml, name_beg, *pos);
+				if close_node_name != node_name {
+					return pack_error("node name mismatch", *pos);
+			}
+	}
+
+	
+	}
+	return pack_error("parse close node error", *pos);
+}
 
 fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParseError> {
 	let mut ret = Vec::new();
@@ -350,6 +319,49 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 	}
 
 	return Ok(ret);
+}
+
+
+pub fn parse_content(content: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
+	for (i, s) in content.into_iter().enumerate() {
+		println!("{},{}", i, *s as char);
+	}
+
+	//return Err(XmlParseError::new("msg", 1));
+
+	// let slice = &content[3..6];
+ // println!("{}", slice);
+ // println!("{}", content.len());
+
+	let mut pos: usize = 0;
+	let xml = content;
+
+	// parse_element(&mut pos,str.as_bytes());
+
+	return parse_nodes(&mut pos,xml);
+}
+
+fn parse_nodes(pos: &mut usize, xml: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
+
+	let mut nodes = Vec::new();
+
+	loop {
+		skip_whitespace(pos, xml);
+
+		if xml[*pos] == 0 {
+			break;
+		}
+
+		if xml[*pos] == '<' as u8 {
+			advance(pos);
+			let result = try!(parse_node(pos, xml));
+			nodes.push(Box::new(result));
+		} else {
+			break;
+		}
+	}
+
+	return Ok(nodes);
 }
 
 fn advance(pos: &mut usize) {
@@ -426,3 +438,5 @@ mod tests {
 		test();
 	}
 }
+
+
