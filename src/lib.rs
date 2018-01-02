@@ -16,7 +16,7 @@ use std::ptr;
 // {
 
 // }
-#[derive(Debug,Copy,Clone)]
+#[derive(Debug, Copy, Clone)]
 struct XmlStr {
 	data: *const u8,
 	length: usize,
@@ -149,6 +149,7 @@ static name_end_chars: &'static [char] = &[' ', '\n', '\r', '\t', '/', '>', '?',
 static invalid_attr_name_chars: &'static [char] =
 	&[' ', '\n', '\r', '\t', '/', '<', '>', '=', '?', '!', '\0'];
 
+static invalid_text_chars: &'static [char] = &['<', '\0'];
 
 pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
 	let mut file = File::open(filename).expect("can't find file");
@@ -198,15 +199,12 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 		return Err(attr_result.err().unwrap());
 	}
 
-	let mut ret_node = XmlNode{				
+	let mut ret_node = XmlNode {
 		name: node_name,
 		value: node_value,
 		attrs: Vec::new(),
 		children: Vec::new(),
 	};
-
-
-
 
 	if xml[*pos] == '>' as u8 {
 		//parse content
@@ -217,19 +215,18 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 		skip_whitespace(pos, xml);
 
 		if xml[*pos] == '<' as u8 {
-			if xml[*pos+1] == '/' as u8 {
-					try!(parse_close_node(pos,xml,node_name));
-				} else
-				 {
-					ret_node.children = try!(parse_nodes(pos,xml));				
+			if xml[*pos + 1] == '/' as u8 {
+				try!(parse_close_node(pos, xml, node_name));
+			} else {
+				ret_node.children = try!(parse_nodes(pos, xml));
 			}
 		} else {
-			skip_name(pos, xml);
+			skip_text(pos, xml);
 			ret_node.value = XmlStr::from_range(xml, maybe_content_beg, *pos);
-			try!(parse_close_node(pos,xml,node_name));
+			try!(parse_close_node(pos, xml, node_name));
 		}
 
-		// return pack_error("unimplemented", *pos);
+	// return pack_error("unimplemented", *pos);
 	} else if xml[*pos] == '/' as u8 {
 		advance(pos);
 		if xml[*pos] != '>' as u8 {
@@ -241,34 +238,30 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 	}
 
 	// return Ok(XmlNode {
-	// 	name: node_name,
-	// 	value: XmlStr::null_str(),
-	// 	attrs: attr_result.ok().unwrap(),
-	// 	children: Vec::new(),
-	// });
+ // 	name: node_name,
+ // 	value: XmlStr::null_str(),
+ // 	attrs: attr_result.ok().unwrap(),
+ // 	children: Vec::new(),
+ // });
 
 	return Ok(ret_node);
 }
 
-fn parse_close_node(
-	pos: &mut usize,
-	xml: &[u8],
-	node_name: XmlStr,
-) -> Result<(), XmlParseError> {
-
+fn parse_close_node(pos: &mut usize, xml: &[u8], node_name: XmlStr) -> Result<(), XmlParseError> {
 	if xml[*pos] == '<' as u8 {
+		advance(pos);
+		if xml[*pos] == '/' as u8 {
 			advance(pos);
-			if xml[*pos] == '/' as u8 {
-				advance(pos);
-				let name_beg = *pos;
-				skip_name(pos, xml);
-				let close_node_name = XmlStr::from_range(xml, name_beg, *pos);
-				if close_node_name != node_name {
-					return pack_error("node name mismatch", *pos);
+			let name_beg = *pos;
+			skip_name(pos, xml);
+			let close_node_name = XmlStr::from_range(xml, name_beg, *pos);
+			if close_node_name != node_name {
+				return pack_error("node name mismatch", *pos);
 			}
-	}
-
-	
+			else{
+				return Ok(());
+			}
+		}
 	}
 	return pack_error("parse close node error", *pos);
 }
@@ -321,7 +314,6 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 	return Ok(ret);
 }
 
-
 pub fn parse_content(content: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
 	for (i, s) in content.into_iter().enumerate() {
 		println!("{},{}", i, *s as char);
@@ -338,11 +330,10 @@ pub fn parse_content(content: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlParseError>
 
 	// parse_element(&mut pos,str.as_bytes());
 
-	return parse_nodes(&mut pos,xml);
+	return parse_nodes(&mut pos, xml);
 }
 
 fn parse_nodes(pos: &mut usize, xml: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
-
 	let mut nodes = Vec::new();
 
 	loop {
@@ -373,15 +364,17 @@ fn in_chars_set(c: char, set: &[char]) -> bool {
 }
 
 fn skip_name(pos: &mut usize, xml: &[u8]) {
-	// let c = xml[*pos] as char;
- // for cc in  name_end_chars.into_iter(){
- // 	println!("a:{}b:{}", cc,c);
- // }
- // println!("done");
 	while !name_end_chars.iter().any(|&x| x == (xml[*pos] as char)) {
 		*pos = *pos + 1;
 	}
 }
+
+fn skip_text(pos: &mut usize, xml: &[u8]) {
+	while !invalid_text_chars.iter().any(|&x| x == (xml[*pos] as char)) {
+		*pos = *pos + 1;
+	}
+}
+
 fn skip_until(target: char, pos: &mut usize, xml: &[u8]) {
 	while xml[*pos] != target as u8 && xml[*pos] != 0 {
 		*pos = *pos + 1;
@@ -409,7 +402,7 @@ pub fn test() {
  //  let content = parse("./data/test.xml");
  // parse("./data/mbcs.txt");
 
-	let xml = CString::new("<lib count='2'>hello<lib/>").unwrap();
+	let xml = CString::new("<lib count='2'>hello</lib>").unwrap();
 	let doc = match parse_cstring(xml) {
 		Ok(doc) => doc,
 		Err(e) => panic!("{:?}", e),
@@ -438,5 +431,3 @@ mod tests {
 		test();
 	}
 }
-
-
