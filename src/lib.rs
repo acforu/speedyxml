@@ -46,6 +46,10 @@ impl XmlStr {
 	fn null_str() -> XmlStr {
 		XmlStr::from(ptr::null(), 0)
 	}
+
+	fn is_empty(&self) -> bool{
+		return self.length == 0;
+	}
 }
 
 impl PartialEq for XmlStr {
@@ -119,7 +123,23 @@ impl fmt::Display for XmlNode {
 		for attr in self.attrs.iter() {
 			write!(f, "{}='{}'", attr.name, attr.value);
 		}
-		write!(f, "/>")
+		if self.value.is_empty(){
+			if self.children.is_empty(){
+				write!(f, "/>")
+			}
+			else{
+				write!(f, ">");
+				for child in self.children.iter() {
+					write!(f, "{}",child);
+				}
+				write!(f, "</{}>", self.name)
+			}
+		}
+		else
+		{
+			write!(f, ">{}</{}>",self.value,self.name)
+		}
+		
 	}
 }
 
@@ -194,15 +214,12 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 	let node_value = XmlStr::null_str();
 	skip_whitespace(pos, xml);
 
-	let attr_result = parse_node_attr(pos, xml);
-	if attr_result.is_err() {
-		return Err(attr_result.err().unwrap());
-	}
+	let attr_result = try!(parse_node_attr(pos, xml));
 
 	let mut ret_node = XmlNode {
 		name: node_name,
 		value: node_value,
-		attrs: Vec::new(),
+		attrs: attr_result,
 		children: Vec::new(),
 	};
 
@@ -398,36 +415,57 @@ fn skip_whitespace(pos: &mut usize, xml: &[u8]) {
 }
 
 pub fn test() {
-	// println!("hello world" );
- //  let content = parse("./data/test.xml");
- // parse("./data/mbcs.txt");
 
-	let xml = CString::new("<lib count='2'>hello</lib>").unwrap();
-	let doc = match parse_cstring(xml) {
+
+	let xml = CString::new("<lib count='2'></lib>").unwrap();
+	let doc = match parse_cstring(xml.clone()) {
 		Ok(doc) => doc,
 		Err(e) => panic!("{:?}", e),
 	};
 
 	//println!("{:#?}", doc);
+	// println!("{}", doc.print());
 	println!("{}", doc.print());
-
-	// if res.is_err() {
- // 	println!("{:#?}", res.err().unwrap());
- // } else {
- // 	let doc = res.ok().unwrap();
- // 	println!("{:#?}", doc);
- // }
-
-	// let str = &mut string;
- // println!("{}", "test done")
+	assert_eq!(xml.as_bytes(),doc.print().as_bytes());
 }
+
+pub fn parse_print_xml(text:String){
+	let xml = CString::new(text).unwrap();
+	let doc = match parse_cstring(xml.clone()) {
+		Ok(doc) => doc,
+		Err(e) => panic!("{:?}", e),
+	};
+
+	//println!("{:#?}", doc);
+	// println!("{}", doc.print());
+	assert_eq!(xml.as_bytes(),doc.print().as_bytes());
+}
+
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	// #[test]
+	// fn it_works() {
+	// 	//assert_eq!(2 + 2, 4);
+	// 	test();
+	// }
+
 	#[test]
-	fn it_works() {
-		//assert_eq!(2 + 2, 4);
-		test();
+	fn test_parse_print_xml()
+	{
+		let text = 
+		[
+			"<lib count='2'>hello</lib>",
+			"<lib count='2'></lib>",
+			"<lib count='2'>
+					<book isbn='10'>math</book>
+					<book isbn='20'>english</book>
+				</lib>",
+		];
+		for case in text.iter(){
+			parse_print_xml(String::from(*case));
+		}
+		
 	}
 }

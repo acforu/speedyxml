@@ -9,5 +9,5 @@ fn test1()
 
 fn main() {
 	// test1();
-    speedyxml::test();
+    //speedyxml::test();
 }
