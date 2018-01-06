@@ -47,7 +47,7 @@ impl XmlStr {
 		XmlStr::from(ptr::null(), 0)
 	}
 
-	fn is_empty(&self) -> bool{
+	fn is_empty(&self) -> bool {
 		return self.length == 0;
 	}
 }
@@ -123,23 +123,19 @@ impl fmt::Display for XmlNode {
 		for attr in self.attrs.iter() {
 			write!(f, "{}='{}'", attr.name, attr.value);
 		}
-		if self.value.is_empty(){
-			if self.children.is_empty(){
+		if self.value.is_empty() {
+			if self.children.is_empty() {
 				write!(f, "/>")
-			}
-			else{
+			} else {
 				write!(f, ">");
 				for child in self.children.iter() {
-					write!(f, "{}",child);
+					write!(f, "{}", child);
 				}
 				write!(f, "</{}>", self.name)
 			}
+		} else {
+			write!(f, ">{}</{}>", self.value, self.name)
 		}
-		else
-		{
-			write!(f, ">{}</{}>",self.value,self.name)
-		}
-		
 	}
 }
 
@@ -164,12 +160,11 @@ impl XmlDocument {
 //     println!("{}", unsafe { std::intrinsics::type_name::<T>() });
 // }
 static name_end_chars: &'static [char] = &[' ', '\n', '\r', '\t', '/', '>', '?', '\0'];
-
 // Attribute name (anything but space \n \r \t / < > = ? ! \0)
 static invalid_attr_name_chars: &'static [char] =
 	&[' ', '\n', '\r', '\t', '/', '<', '>', '=', '?', '!', '\0'];
-
 static invalid_text_chars: &'static [char] = &['<', '\0'];
+static space_chars: &'static [char] = &[' ', '\n', '\r', '\t'];
 
 pub fn parse(filename: &str) -> Result<XmlDocument, XmlParseError> {
 	let mut file = File::open(filename).expect("can't find file");
@@ -224,8 +219,6 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 	};
 
 	if xml[*pos] == '>' as u8 {
-		//parse content
-  //maybe add children
 		advance(pos);
 		let maybe_content_beg = *pos;
 
@@ -235,15 +228,15 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 			if xml[*pos + 1] == '/' as u8 {
 				try!(parse_close_node(pos, xml, node_name));
 			} else {
-				ret_node.children = try!(parse_nodes(pos, xml));
+				ret_node.children = try!(parse_children_nodes(pos, xml,node_name));
+				// skip_whitespace(pos, xml);
+				// try!(parse_close_node(pos, xml, node_name));
 			}
 		} else {
 			skip_text(pos, xml);
 			ret_node.value = XmlStr::from_range(xml, maybe_content_beg, *pos);
 			try!(parse_close_node(pos, xml, node_name));
 		}
-
-	// return pack_error("unimplemented", *pos);
 	} else if xml[*pos] == '/' as u8 {
 		advance(pos);
 		if xml[*pos] != '>' as u8 {
@@ -253,17 +246,10 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 	} else {
 		return pack_error("expected >", *pos);
 	}
-
-	// return Ok(XmlNode {
- // 	name: node_name,
- // 	value: XmlStr::null_str(),
- // 	attrs: attr_result.ok().unwrap(),
- // 	children: Vec::new(),
- // });
-
 	return Ok(ret_node);
 }
 
+//parse with "</"
 fn parse_close_node(pos: &mut usize, xml: &[u8], node_name: XmlStr) -> Result<(), XmlParseError> {
 	if xml[*pos] == '<' as u8 {
 		advance(pos);
@@ -274,8 +260,8 @@ fn parse_close_node(pos: &mut usize, xml: &[u8], node_name: XmlStr) -> Result<()
 			let close_node_name = XmlStr::from_range(xml, name_beg, *pos);
 			if close_node_name != node_name {
 				return pack_error("node name mismatch", *pos);
-			}
-			else{
+			} else {
+				advance(pos);
 				return Ok(());
 			}
 		}
@@ -294,7 +280,7 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 
 		let attr_name_beg: usize = *pos;
 
-		skip_chars(invalid_attr_name_chars, pos, xml);
+		skip_until_met_chars(invalid_attr_name_chars, pos, xml);
 		if *pos == attr_name_beg {
 			return pack_error("expected attr name", *pos);
 		}
@@ -372,6 +358,33 @@ fn parse_nodes(pos: &mut usize, xml: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlPars
 	return Ok(nodes);
 }
 
+fn parse_children_nodes(pos: &mut usize,xml: &[u8],node_name: XmlStr) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
+	let mut nodes = Vec::new();
+
+	loop {
+		skip_whitespace(pos, xml);
+
+		if xml[*pos] == 0 {
+			break;
+		}
+
+		if xml[*pos] == '<' as u8 {
+			if xml[*pos+1] == '/' as u8 {
+				try!(parse_close_node(pos, xml, node_name));
+			} else {
+				// todo advance
+				advance(pos);
+				let result = try!(parse_node(pos, xml));
+				nodes.push(Box::new(result));
+			}
+		} else {
+			break;
+		}
+	}
+
+	return Ok(nodes);
+}
+
 fn advance(pos: &mut usize) {
 	*pos = *pos + 1;
 }
@@ -381,15 +394,11 @@ fn in_chars_set(c: char, set: &[char]) -> bool {
 }
 
 fn skip_name(pos: &mut usize, xml: &[u8]) {
-	while !name_end_chars.iter().any(|&x| x == (xml[*pos] as char)) {
-		*pos = *pos + 1;
-	}
+	skip_until_met_chars(name_end_chars, pos, xml);
 }
 
 fn skip_text(pos: &mut usize, xml: &[u8]) {
-	while !invalid_text_chars.iter().any(|&x| x == (xml[*pos] as char)) {
-		*pos = *pos + 1;
-	}
+	skip_until_met_chars(invalid_text_chars, pos, xml);
 }
 
 fn skip_until(target: char, pos: &mut usize, xml: &[u8]) {
@@ -404,32 +413,41 @@ fn skip_char(target: char, pos: &mut usize, xml: &[u8]) {
 	}
 }
 
-fn skip_chars(skip_chars_set: &[char], pos: &mut usize, xml: &[u8]) {
+fn skip_until_met_chars(skip_chars_set: &[char], pos: &mut usize, xml: &[u8]) {
 	while !in_chars_set(xml[*pos] as char, skip_chars_set) {
 		*pos = *pos + 1;
 	}
 }
 
+fn skip_chars(skip_chars_set: &[char], pos: &mut usize, xml: &[u8]) {
+	while in_chars_set(xml[*pos] as char, skip_chars_set) {
+		*pos = *pos + 1;
+	}
+}
+
 fn skip_whitespace(pos: &mut usize, xml: &[u8]) {
-	skip_char(' ', pos, xml);
+	skip_chars(space_chars, pos, xml);
 }
 
 pub fn test() {
-
-
-	let xml = CString::new("<lib count='2'></lib>").unwrap();
+	let xml = CString::new(
+		"<lib count='2'>
+					<book isbn='10'>math</book>
+					<book isbn='20'>english</book>
+			</lib>",
+	).unwrap();
 	let doc = match parse_cstring(xml.clone()) {
 		Ok(doc) => doc,
 		Err(e) => panic!("{:?}", e),
 	};
 
 	//println!("{:#?}", doc);
-	// println!("{}", doc.print());
+ // println!("{}", doc.print());
 	println!("{}", doc.print());
-	assert_eq!(xml.as_bytes(),doc.print().as_bytes());
+	assert_eq!(xml.as_bytes(), doc.print().as_bytes());
 }
 
-pub fn parse_print_xml(text:String){
+pub fn parse_print_xml(text: String, dst: String) {
 	let xml = CString::new(text).unwrap();
 	let doc = match parse_cstring(xml.clone()) {
 		Ok(doc) => doc,
@@ -437,35 +455,42 @@ pub fn parse_print_xml(text:String){
 	};
 
 	//println!("{:#?}", doc);
-	// println!("{}", doc.print());
-	assert_eq!(xml.as_bytes(),doc.print().as_bytes());
+ // println!("{}", doc.print());
+	assert_eq!(dst.as_bytes(), doc.print().as_bytes());
 }
-
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	// #[test]
-	// fn it_works() {
-	// 	//assert_eq!(2 + 2, 4);
-	// 	test();
-	// }
+ // fn it_works() {
+ // 	//assert_eq!(2 + 2, 4);
+ // 	test();
+ // }
 
 	#[test]
-	fn test_parse_print_xml()
-	{
-		let text = 
-		[
+	fn test_parse_print_xml() {
+		let unchange_xml = [
 			"<lib count='2'>hello</lib>",
-			"<lib count='2'></lib>",
-			"<lib count='2'>
+		];
+
+		let mut change_xml = Vec::new();
+		
+		change_xml.push(("<lib count='2'></lib>", "<lib count='2'/>"));
+		change_xml.push(
+			("<lib count='2'>
 					<book isbn='10'>math</book>
 					<book isbn='20'>english</book>
-				</lib>",
-		];
-		for case in text.iter(){
-			parse_print_xml(String::from(*case));
+			</lib>", 
+			"<lib count='2'><book isbn='10'>math</book><book isbn='20'>english</book></lib>"));
+
+
+		for case in unchange_xml.iter() {
+			parse_print_xml(String::from(*case), String::from(*case));
 		}
-		
+
+		for case in change_xml.iter() {
+			parse_print_xml(String::from(case.0), String::from(case.1))
+		}
 	}
 }
