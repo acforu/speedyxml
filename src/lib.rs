@@ -126,9 +126,9 @@ pub struct XmlElement {
 
 impl fmt::Display for XmlElement {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "<{} ", self.name);
+		write!(f, "<{}", self.name);
 		for attr in self.attrs.iter() {
-			write!(f, "{}='{}'", attr.name, attr.value);
+			write!(f, " {}='{}'", attr.name, attr.value);
 		}
 		if self.value.is_empty() {
 			if self.children.is_empty() {
@@ -158,9 +158,21 @@ impl fmt::Display for XmlComment {
 }
 
 #[derive(Debug)]
+pub struct XmlCData {
+	value: XmlStr,
+}
+
+impl fmt::Display for XmlCData {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "<![CDATA[{}]]>", self.value)
+	}
+}
+
+#[derive(Debug)]
 pub enum XmlNode {
 	XmlElement(XmlElement),
 	XmlComment(XmlComment),
+	XmlCData(XmlCData),
 	Undefine,
 }
 
@@ -169,7 +181,8 @@ impl fmt::Display for XmlNode {
 		match *self {
 			XmlNode::XmlElement(ref element) => write!(f, "{}", element),
 			XmlNode::XmlComment(ref comment) => write!(f, "{}", comment),
-			_ => write!(f, "todo"),
+			XmlNode::XmlCData(ref cdata) => write!(f, "{}", cdata),
+			_ => write!(f, ""),
 		}
 	}
 }
@@ -235,6 +248,12 @@ fn parse_node(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 					return parse_comment(pos, xml);
 				}
 			}
+			'[' => {
+				if is_begin_with(xml, *pos + 2, "CDATA["){
+					advance_n(pos, 8);
+					return parse_cdata(pos, xml);
+				}
+			}
 			_ => {
 				return pack_error("todo", *pos);
 			}
@@ -256,7 +275,7 @@ fn parse_node(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 
 fn parse_comment(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 	let comment_beg = *pos;
-	while xml[*pos] != '-' as u8 || xml[*pos + 1] != '-' as u8 || xml[*pos + 2] != '>' as u8 {
+	while !is_begin_with(xml,*pos,"-->"){
 		if xml[*pos] == 0 {
 			return pack_error("unexpect end", *pos);
 		}
@@ -264,9 +283,40 @@ fn parse_comment(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 	}
 
 	let comment = XmlComment {
-		value: XmlStr::from_range(xml, comment_beg, *pos),
+		value: XmlStr::from_range(xml, comment_beg, *pos), 
 	};
+	advance_n(pos, 3); 
 	return Ok(XmlNode::XmlComment(comment));
+}
+
+
+fn parse_cdata(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
+	let beg = *pos;
+	while !is_begin_with(xml,*pos,"]]>"){
+		if xml[*pos] == 0 {
+			return pack_error("unexpect end", *pos);
+		}
+		advance(pos);
+	}
+
+	let cdata = XmlCData {
+		value: XmlStr::from_range(xml, beg, *pos), 
+	};
+	advance_n(pos, 3); 
+	return Ok(XmlNode::XmlCData(cdata));
+}
+
+fn is_begin_with(xml: &[u8],mut pos: usize, string : &'static str) -> bool{
+	for c in string.as_bytes(){
+		if xml[pos] == *c {
+			pos = pos + 1;
+		}
+		else{
+			return false;
+		}
+	}
+	return true;
+
 }
 
 fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
@@ -522,7 +572,19 @@ fn skip_whitespace(pos: &mut usize, xml: &[u8]) {
 }
 
 pub fn test() {
-	let xml = CString::new("<lib count='2'><!-- comment --></lib>").unwrap();
+	let xml = CString::new("<!-- comment --><script><![CDATA[
+function matchwo(a,b)
+{
+if (a < b && a < 0) then
+  {
+  return 1;
+  }
+else
+  {
+  return 0;
+  }
+}
+]]></script>").unwrap();
 	let doc = match parse_cstring(xml.clone()) {
 		Ok(doc) => doc,
 		Err(e) => panic!("{:?}", e),
@@ -562,6 +624,20 @@ mod tests {
 		unchange_cases.push("<lib count='2'>hello</lib>");
 		unchange_cases.push("<lib count='2'><!-- comment --></lib>");
 
+		unchange_cases.push("<!-- comment --><script><![CDATA[
+function matchwo(a,b)
+{
+if (a < b && a < 0) then
+  {
+  return 1;
+  }
+else
+  {
+  return 0;
+  }
+}
+]]></script>");
+
 		let mut change_cases = Vec::new();
 		change_cases.push(("<lib count='2'></lib>", "<lib count='2'/>"));
 		change_cases.push((
@@ -580,4 +656,4 @@ mod tests {
 			parse_print_xml(String::from(case.0), String::from(case.1))
 		}
 	}
-}
+} 
