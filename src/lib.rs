@@ -109,15 +109,22 @@ fn pack_error<T>(msg: &'static str, index: usize) -> Result<T, XmlParseError> {
 	return Err(XmlParseError { msg, index });
 }
 
+// #[derive(Debug)]
+// pub struct XmlNode {
+// 	name: XmlStr,
+// 	value: XmlStr,
+// 	attrs: Vec<XmlAttr>,
+// 	children: Vec<Box<XmlNode>>,
+// }
 #[derive(Debug)]
-pub struct XmlNode {
+pub struct XmlElement {
 	name: XmlStr,
 	value: XmlStr,
 	attrs: Vec<XmlAttr>,
 	children: Vec<Box<XmlNode>>,
 }
 
-impl fmt::Display for XmlNode {
+impl fmt::Display for XmlElement {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "<{} ", self.name);
 		for attr in self.attrs.iter() {
@@ -135,6 +142,34 @@ impl fmt::Display for XmlNode {
 			}
 		} else {
 			write!(f, ">{}</{}>", self.value, self.name)
+		}
+	}
+}
+
+#[derive(Debug)]
+pub struct XmlComment {
+	value: XmlStr,
+}
+
+impl fmt::Display for XmlComment {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "<!--{}-->", self.value)
+	}
+}
+
+#[derive(Debug)]
+pub enum XmlNode {
+	XmlElement(XmlElement),
+	XmlComment(XmlComment),
+	Undefine,
+}
+
+impl fmt::Display for XmlNode {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match *self {
+			XmlNode::XmlElement(ref element) => write!(f, "{}", element),
+			XmlNode::XmlComment(ref comment) => write!(f, "{}", comment),
+			_ => write!(f, "todo"),
 		}
 	}
 }
@@ -191,10 +226,47 @@ fn parse_cstring<'a>(content: CString) -> Result<XmlDocument, XmlParseError> {
 
 fn parse_node(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 	let c = xml[*pos];
-	match c {
-		_ => parse_element(pos, xml),
-		//else #todo
+
+	if c == '!' as u8 {
+		match xml[*pos + 1] as char {
+			'-' => {
+				if xml[*pos + 2] == '-' as u8 {
+					advance_n(pos, 3);
+					return parse_comment(pos, xml);
+				}
+			}
+			_ => {
+				return pack_error("todo", *pos);
+			}
+		}
+
+		advance(pos); // Skip !
+		while xml[*pos] != '>' as u8 {
+			if xml[*pos] == 0 {
+				return pack_error("unexpected end of data", *pos);
+			}
+			advance(pos);
+		}
+		advance(pos); // Skip '>'
+		return Ok(XmlNode::Undefine);
+	} else {
+		parse_element(pos, xml)
 	}
+}
+
+fn parse_comment(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
+	let comment_beg = *pos;
+	while xml[*pos] != '-' as u8 || xml[*pos + 1] != '-' as u8 || xml[*pos + 2] != '>' as u8 {
+		if xml[*pos] == 0 {
+			return pack_error("unexpect end", *pos);
+		}
+		advance(pos);
+	}
+
+	let comment = XmlComment {
+		value: XmlStr::from_range(xml, comment_beg, *pos),
+	};
+	return Ok(XmlNode::XmlComment(comment));
 }
 
 fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
@@ -211,12 +283,12 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 
 	let attr_result = try!(parse_node_attr(pos, xml));
 
-	let mut ret_node = XmlNode {
+	let mut ret_node = XmlNode::XmlElement(XmlElement {
 		name: node_name,
 		value: node_value,
 		attrs: attr_result,
 		children: Vec::new(),
-	};
+	});
 
 	if xml[*pos] == '>' as u8 {
 		advance(pos);
@@ -228,13 +300,25 @@ fn parse_element(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> 
 			if xml[*pos + 1] == '/' as u8 {
 				try!(parse_close_node(pos, xml, node_name));
 			} else {
-				ret_node.children = try!(parse_children_nodes(pos, xml,node_name));
-				// skip_whitespace(pos, xml);
-				// try!(parse_close_node(pos, xml, node_name));
+				// match ret_node {
+	// 	XmlNode::XmlElement(ref element) => {
+	// 		element.children = try!(parse_children_nodes(pos, xml, node_name));
+	// 	}
+	// }
+
+				if let XmlNode::XmlElement(ref mut element) = ret_node {
+					element.children = try!(parse_children_nodes(pos, xml, node_name));
+				}
+				// ret_node.children = try!(parse_children_nodes(pos, xml, node_name));
 			}
 		} else {
 			skip_text(pos, xml);
-			ret_node.value = XmlStr::from_range(xml, maybe_content_beg, *pos);
+			// ret_node.value = XmlStr::from_range(xml, maybe_content_beg, *pos);
+
+			if let XmlNode::XmlElement(ref mut element) = ret_node {
+				element.value = XmlStr::from_range(xml, maybe_content_beg, *pos);
+			}
+
 			try!(parse_close_node(pos, xml, node_name));
 		}
 	} else if xml[*pos] == '/' as u8 {
@@ -358,7 +442,11 @@ fn parse_nodes(pos: &mut usize, xml: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlPars
 	return Ok(nodes);
 }
 
-fn parse_children_nodes(pos: &mut usize,xml: &[u8],node_name: XmlStr) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
+fn parse_children_nodes(
+	pos: &mut usize,
+	xml: &[u8],
+	node_name: XmlStr,
+) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
 	let mut nodes = Vec::new();
 
 	loop {
@@ -369,7 +457,7 @@ fn parse_children_nodes(pos: &mut usize,xml: &[u8],node_name: XmlStr) -> Result<
 		}
 
 		if xml[*pos] == '<' as u8 {
-			if xml[*pos+1] == '/' as u8 {
+			if xml[*pos + 1] == '/' as u8 {
 				try!(parse_close_node(pos, xml, node_name));
 			} else {
 				// todo advance
@@ -387,6 +475,10 @@ fn parse_children_nodes(pos: &mut usize,xml: &[u8],node_name: XmlStr) -> Result<
 
 fn advance(pos: &mut usize) {
 	*pos = *pos + 1;
+}
+
+fn advance_n(pos: &mut usize, n: usize) {
+	*pos = *pos + n;
 }
 
 fn in_chars_set(c: char, set: &[char]) -> bool {
@@ -430,12 +522,7 @@ fn skip_whitespace(pos: &mut usize, xml: &[u8]) {
 }
 
 pub fn test() {
-	let xml = CString::new(
-		"<lib count='2'>
-					<book isbn='10'>math</book>
-					<book isbn='20'>english</book>
-			</lib>",
-	).unwrap();
+	let xml = CString::new("<lib count='2'><!-- comment --></lib>").unwrap();
 	let doc = match parse_cstring(xml.clone()) {
 		Ok(doc) => doc,
 		Err(e) => panic!("{:?}", e),
@@ -470,26 +557,26 @@ mod tests {
 
 	#[test]
 	fn test_parse_print_xml() {
-		let unchange_xml = [
-			"<lib count='2'>hello</lib>",
-		];
+		let mut unchange_cases = Vec::new();
 
-		let mut change_xml = Vec::new();
-		
-		change_xml.push(("<lib count='2'></lib>", "<lib count='2'/>"));
-		change_xml.push(
-			("<lib count='2'>
+		unchange_cases.push("<lib count='2'>hello</lib>");
+		unchange_cases.push("<lib count='2'><!-- comment --></lib>");
+
+		let mut change_cases = Vec::new();
+		change_cases.push(("<lib count='2'></lib>", "<lib count='2'/>"));
+		change_cases.push((
+			"<lib count='2'>
 					<book isbn='10'>math</book>
 					<book isbn='20'>english</book>
-			</lib>", 
-			"<lib count='2'><book isbn='10'>math</book><book isbn='20'>english</book></lib>"));
+			</lib>",
+			"<lib count='2'><book isbn='10'>math</book><book isbn='20'>english</book></lib>",
+		));
 
-
-		for case in unchange_xml.iter() {
+		for case in unchange_cases.iter() {
 			parse_print_xml(String::from(*case), String::from(*case));
 		}
 
-		for case in change_xml.iter() {
+		for case in change_cases.iter() {
 			parse_print_xml(String::from(case.0), String::from(case.1))
 		}
 	}
