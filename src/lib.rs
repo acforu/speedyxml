@@ -176,12 +176,27 @@ impl fmt::Display for XmlDeclaration {
 	}
 }
 
+
+#[derive(Debug)]
+pub struct XmlPi {
+	name:XmlStr,
+	value:XmlStr
+}
+
+impl fmt::Display for XmlPi {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "<?{} {}?>",self.name,self.value)
+	}
+}
+
+
 #[derive(Debug)]
 pub enum XmlNode {
 	XmlElement(XmlElement),
 	XmlComment(XmlComment),
 	XmlCData(XmlCData),
 	XmlDeclaration(XmlDeclaration),
+	XmlPi(XmlPi),
 	Undefine,
 }
 
@@ -192,6 +207,7 @@ impl fmt::Display for XmlNode {
 			XmlNode::XmlComment(ref comment) => write!(f, "{}", comment),
 			XmlNode::XmlCData(ref cdata) => write!(f, "{}", cdata),
 			XmlNode::XmlDeclaration(ref declaration) => write!(f, "{}", declaration),
+			XmlNode::XmlPi(ref pi) => write!(f, "{}", pi),
 			_ => write!(f, ""),
 		}
 	}
@@ -289,7 +305,7 @@ fn parse_node(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 			advance_n(pos, 4);
 			return parse_declaration(pos,xml);
 		} else {
-			return pack_error("todo: parse pi", *pos);
+			return parse_pi(pos, xml);
 		}
 	} else {
 		parse_element(pos, xml)
@@ -337,6 +353,35 @@ fn parse_cdata(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
 	};
 	advance_n(pos, 3);
 	return Ok(XmlNode::XmlCData(cdata));
+}
+
+fn parse_pi(pos: &mut usize, xml: &[u8]) -> Result<XmlNode, XmlParseError> {
+	let beg = *pos;
+	skip_name(pos, xml);
+	if beg == *pos{
+		return pack_error("expect pi name", beg);
+	}
+
+	let name = XmlStr::from_range(xml, beg, *pos);
+
+	skip_whitespace(pos, xml);
+
+	let beg = *pos;
+
+	while !is_begin_with(xml, *pos, "?>") {
+		if xml[*pos] == 0 {
+			return pack_error("unexpect end", *pos);
+		}
+		advance(pos);
+	}
+
+	let pi = XmlPi { 
+		name : name,
+		value: XmlStr::from_range(xml, beg, *pos),
+	};
+
+	advance_n(pos, 2);
+	return Ok(XmlNode::XmlPi(pi));
 }
 
 fn is_begin_with(xml: &[u8], mut pos: usize, string: &'static str) -> bool {
@@ -604,7 +649,7 @@ fn skip_whitespace(pos: &mut usize, xml: &[u8]) {
 
 pub fn test() {
 	let xml = CString::new(
-		r##"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"##,
+		r##"<?xml-stylesheet href="mystyle.css" type="text/css"?>"##, 
 	).unwrap();
 	let doc = match parse_cstring(xml.clone()) {
 		Ok(doc) => doc,
@@ -644,6 +689,7 @@ mod tests {
 
 		unchange_cases.push(r#"<lib count="2">hello</lib>"#);
 		unchange_cases.push(r#"<lib count="2"><!-- comment --></lib>"#);
+		unchange_cases.push(r#"<?xml-stylesheet href="mystyle.css" type="text/css"?>"#);
 
 		unchange_cases.push(
 			"<!-- comment --><script><![CDATA[
