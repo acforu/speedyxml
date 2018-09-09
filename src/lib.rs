@@ -1,10 +1,11 @@
-// #![feature(core_intrinsics)]
-// #![allow(unused_variables)]
-// #![warn(unused_imports)]
-// #![warn(unused_must_use)]
-// #![allow(dead_code)]
+ #![feature(core_intrinsics)]
+ #![allow(unused_variables)]
+ #![allow(unused_imports)]
+ #![allow(unused_must_use)]
+ #![allow(dead_code)]
+ #![allow(non_upper_case_globals)]
 
-use std::fs::File;
+ use std::fs::File;
 use std::io::prelude::*;
 use std::ffi::{CStr, CString};
 use std::str::*;
@@ -528,9 +529,9 @@ fn parse_node_attr(pos: &mut usize, xml: &[u8]) -> Result<Vec<XmlAttr>, XmlParse
 }
 
 pub fn parse_content(content: &[u8]) -> Result<Vec<Box<XmlNode>>, XmlParseError> {
-	for (i, s) in content.into_iter().enumerate() {
-		println!("{},{}", i, *s as char);
-	}
+//	for (i, s) in content.into_iter().enumerate() {
+//		println!("{},{}", i, *s as char);
+//	}
 
 	//return Err(XmlParseError::new("msg", 1));
 
